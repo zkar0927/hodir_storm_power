@@ -1,0 +1,7 @@
+## Interface: 30400
+## Title: HodirStormPower
+## Notes: Create a priority list for Hodir's Storm Power buff. Then automatically marks those targets.
+## Author: zkar0927
+## SavedVariables: HodirStormPowerDB
+## Version: 1.0.0
+HodirStormPower.lua
