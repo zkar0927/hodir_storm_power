@@ -6,12 +6,141 @@ end)
 
 ADDON:RegisterEvent("PLAYER_LOGIN")
 
+local function GetAllRaidMembers()
+
+  local _, _, _, _, maxPlayers = GetInstanceInfo()
+  local numPlayers = GetNumGroupMembers()
+
+  local max = numPlayers
+
+  if maxPlayers ~= 0 then
+    max = (numPlayers > maxPlayers) and maxPlayers or numPlayers
+  end
+
+  local everyone = ""
+  for i = 1, max do
+    local unit = "raid" .. i
+    everyone = everyone .. UnitName(unit) .. "\n"
+  end
+
+  return everyone
+end
+
+local function ClickPopulateFromRaid()
+  ADDON.configFrame.editBox:SetText(GetAllRaidMembers())
+end
+
+local function ClickSave()
+  HodirStormPowerDB.priorityList = strsplittable("\n", ADDON.configFrame.editBox:GetText())
+end
+
+local function PopulateEditBox()
+  local string = ""
+  for k, v in pairs(HodirStormPowerDB.priorityList) do
+    string = string .. v .. "\n"
+  end
+
+  ADDON.configFrame.editBox:SetText(string)
+end
+
+local function CreateConfigFrame()
+  local configFrameName = "HodirStormPowerConfig"
+  local frame = CreateFrame("Frame", configFrameName, UIParent, "BackdropTemplate")
+  ADDON.configFrame = frame
+  frame:SetPoint("CENTER")
+  frame:SetSize(300, 500)
+  frame:SetBackdrop(BACKDROP_TUTORIAL_16_16)
+
+  -- Make the frame movable
+  frame:SetMovable(true)
+  frame:SetScript("OnMouseDown", function(self, button)
+    self:StartMoving()
+  end)
+  frame:SetScript("OnMouseUp", function(self, button)
+    self:StopMovingOrSizing()
+  end)
+
+  frame.closeButton = CreateFrame("Button", configFrameName .. "CloseButton", frame, "UIPanelCloseButton")
+  frame.closeButton:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+
+  -- button to pull in raid members in a list
+  frame.populateButton = CreateFrame("Button", configFrameName .. "PopulateButton", frame, "UIPanelButtonTemplate")
+  frame.populateButton:SetPoint("BOTTOMLEFT", 10, 7)
+  frame.populateButton:SetSize(100, 40)
+  frame.populateButton:SetText("Populate\nFrom Raid")
+  frame.populateButton:SetScript("OnClick", function() ClickPopulateFromRaid() end)
+
+  -- button to lock in config
+  frame.saveButton = CreateFrame("Button", configFrameName .. "SaveButton", frame, "UIPanelButtonTemplate")
+  frame.saveButton:SetPoint("BOTTOMRIGHT", -10, 7)
+  frame.saveButton:SetSize(100, 40)
+  frame.saveButton:SetText("Save")
+  frame.saveButton:SetScript("OnClick", function() ClickSave() end)
+
+  -- Create Header
+  frame.header = CreateFrame("Frame", configFrameName .. "-Header", frame, "BackdropTemplate")
+  local header = frame.header
+  header:SetBackdrop(BACKDROP_DATA)
+  header:SetBackdropColor(0, 1, 0, 1)
+  header:SetSize(0, 0)
+  header.text = header:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+  header.text:SetAllPoints(header)
+  header.text:SetJustifyH("CENTER")
+  header.text:SetText("Storm Power Priority")
+  header:SetPoint("TOPLEFT", frame, 10, -7)
+  header:SetPoint("BOTTOMRIGHT", frame, "TOPRIGHT", -30, -25)
+
+  frame.editBox = CreateFrame("EditBox", configFrameName .. "-EditBox", frame) --, "SearchBoxTemplate")
+  frame.editBox:SetMultiLine(true)
+  frame.editBox:SetAutoFocus(false)
+  frame.editBox:SetSize(100, 100)
+  frame.editBox:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 6, -8)
+  frame.editBox:SetPoint("BOTTOMRIGHT")
+  frame.editBox:SetFontObject("GameFontHighlight")
+  frame.editBox:SetTextInsets(2, 1, 2, 2)
+  frame.editBox:SetIgnoreParentAlpha(true)
+  frame.editBox:SetScript("OnShow", function() PopulateEditBox() end)
+  PopulateEditBox()
+
+end
+
+local function ShowConfiguration()
+
+  if ADDON.configFrame then
+    -- If the frame exists, toggle visibility
+    local configFrame = ADDON.configFrame
+    if configFrame:IsShown() then
+      configFrame:Hide()
+    else
+      configFrame:Show()
+    end
+  else
+    -- Otherwise, create the initial frame
+    CreateConfigFrame()
+  end
+
+end
+
+local function SetupSlashHandler()
+  -- Configure slash handler
+  SlashCmdList.HodirStormPower = function()
+    ShowConfiguration()
+  end
+  SLASH_HodirStormPower1 = "/hodirstormpower"
+  SLASH_HodirStormPower2 = "/hsp"
+end
+
 function ADDON.PLAYER_LOGIN()
   if not ADDON.initialized then
     ADDON.initialized = true
 
     ADDON:RegisterEvent("ENCOUNTER_START")
     ADDON:RegisterEvent("ENCOUNTER_END")
+
+    HodirStormPowerDB = HodirStormPowerDB or {}
+    HodirStormPowerDB.priorityList = HodirStormPowerDB.priorityList or {}
+
+    SetupSlashHandler()
 
     ADDON.lastUpdateMarkTime = GetTime()
   end
@@ -33,12 +162,11 @@ end
 
 local function GetPlayersToMark()
 
-  local priorityTargets = { "High Prio", "MediumPrio", "LowPrio" }
-
   local playersToMark = {}
   local count = 0
 
-  for i, playerName in ipairs(priorityTargets) do
+  local priorityTargets = HodirStormPowerDB.priorityList
+  for i, playerName in pairs(priorityTargets) do
     if UnitExists(playerName) then
 
       local spellName = "Storm Power"
@@ -50,7 +178,7 @@ local function GetPlayersToMark()
 
         -- Only mark the top X
         count = count + 1
-        if count >= 2 then break end
+        if count >= 5 then break end
       end
     end
   end
@@ -64,15 +192,11 @@ local function GetMarkedPlayers()
   local _, _, _, _, maxPlayers = GetInstanceInfo()
   local numPlayers = GetNumGroupMembers()
 
-  -- Only look through the max number of players per raid size
-  -- Ex: if there are 12 people in a 10man raid, only look through the first 10
-  -- However, if there are 8, just look through those 8
   local max = numPlayers
   if maxPlayers ~= 0 then
     max = (numPlayers > maxPlayers) and maxPlayers or numPlayers
   end
 
-  -- Loop through every person in raid and find which raid marker they have
   for i = 1, max do
     local unit = "raid" .. i
     local index = GetRaidTargetIndex(unit)
@@ -86,9 +210,9 @@ end
 
 local function UpdateMarks()
   local markedPlayers = GetMarkedPlayers()
+
   local playersToMark = GetPlayersToMark()
 
-  -- Will hold the marks available to be (re)used
   local availableMarks = {}
 
   -- Go through all marked players and find any which should no longer be marked
@@ -123,15 +247,16 @@ end
 
 function ADDON.UNIT_AURA(self, event, unitTarget)
 
-  -- throttle to 1Hz
-  local now = GetTime()
-  if now < (ADDON.lastUpdateMarkTime + 1) then
-    return
-  end
-  ADDON.lastUpdateMarkTime = now
 
   -- Only look for auras applied to raid units
   if string.find(unitTarget, "raid") ~= nil then
+    -- throttle to 1Hz
+    local now = GetTime()
+    if (now - 1) < ADDON.lastUpdateMarkTime then
+      return
+    end
+    ADDON.lastUpdateMarkTime = now
+
     UpdateMarks()
   end
 end
